@@ -1,5 +1,6 @@
 ﻿
-using Google.OrTools.LinearSolver;
+//using Google.OrTools.LinearSolver;
+using Google.OrTools.Sat;
 
 var datasets = new[] { "a_an_example", "b_basic", "c_coarse", "d_difficult", "e_elaborate" };
 
@@ -12,6 +13,8 @@ foreach (var name in datasets)
 
     // Solve the problem
     var recipe = FindRecipeUsingLinearSolver(dataset);
+    var score = Score(dataset, recipe);
+    System.Console.WriteLine($"Score: {score}");
 
     // Write output
     // Format: "[number of ingredients in recipe] [ingredient1] [ingredient2] [ingredient3] ..."
@@ -28,62 +31,72 @@ System.Console.WriteLine("Done.");
 
 HashSet<string> FindRecipeUsingLinearSolver(Dataset dataset)
 {
-    Solver solver = Solver.CreateSolver("GLOP");
-    var zero = solver.MakeIntVar(0, 0, "zero");
+    var model = new CpModel();
 
-    var ingredientVariables = new Dictionary<string, Variable>();
+    var ingredientVariables = new Dictionary<string, IntVar>();
 
     foreach (var ingredient in dataset.Ingredients)
     {
-        ingredientVariables[ingredient] = solver.MakeIntVar(0, 1, ingredient);
+        ingredientVariables[ingredient] = model.NewBoolVar(ingredient);
     }
 
-    var clients = new List<LinearExpr>();
+    var clientExprs = new List<LinearExpr>();
 
-    foreach (var client in dataset.Clients)
+    for (int i = 0; i < dataset.Clients.Count; i++)
     {
-        var need = zero + zero;
-        var hate = zero + zero;
+        var client = dataset.Clients[i];
+
+        var clientExpr = model.NewIntVar(0, 1, $"client{i}");
+
+        var literals = new List<ILiteral>();
 
         foreach (var ingredient in client.Need)
         {
-            need += ingredientVariables[ingredient] * 1;
+            literals.Add(ingredientVariables[ingredient]);
         }
 
         foreach (var ingredient in client.Hate)
         {
-            hate += ingredientVariables[ingredient] * 100000;
+            literals.Add(ingredientVariables[ingredient].Not());
         }
 
-        clients.Add(need - hate);
+        var notLiterals = literals.Select(l => l.Not()).ToArray();
+
+        model.Add(clientExpr == 1).OnlyEnforceIf(literals.ToArray());
+        model.Add(clientExpr == 0).OnlyEnforceIf(notLiterals);
+
+        clientExprs.Add(clientExpr);
     }
 
+    var zero = model.NewConstant(0);
     var goal = zero + zero;
 
-    foreach (var client in clients)
+    foreach (var expr in clientExprs)
     {
-        goal += client;
+        goal += expr;
     }
 
-    solver.Maximize(goal);
+    model.Maximize(goal);
+    var solver = new CpSolver();
 
-    Solver.ResultStatus resultStatus = solver.Solve();
+    var printer = new VarArraySolutionPrinter(ingredientVariables.Values.ToArray());
+    var resultStatus = solver.Solve(model, printer);
 
-    if (resultStatus != Solver.ResultStatus.OPTIMAL)
+    if (resultStatus != CpSolverStatus.Optimal)
     {
         throw new InvalidOperationException("The problem does not have an optimal solution!");
     }
 
-    Console.WriteLine("Solution:");
-    Console.WriteLine("Objective value = " + solver.Objective().Value());
+    // Console.WriteLine("Solution:");
+    // Console.WriteLine("Objective value = " + solver.Objective().Value());
 
-    // [START advanced]
-    Console.WriteLine("\nAdvanced usage:");
-    Console.WriteLine("Problem solved in " + solver.WallTime() + " milliseconds");
-    Console.WriteLine("Problem solved in " + solver.Iterations() + " iterations");
-    // [END advanced]
+    // // [START advanced]
+    // Console.WriteLine("\nAdvanced usage:");
+    // Console.WriteLine("Problem solved in " + solver.WallTime() + " milliseconds");
+    // Console.WriteLine("Problem solved in " + solver.Iterations() + " iterations");
+    // // [END advanced]
 
-    return ingredientVariables.Where(kvp => kvp.Value.SolutionValue() == 1).Select(kvp => kvp.Key).ToHashSet();
+    return ingredientVariables.Where(kvp => solver.BooleanValue(kvp.Value)).Select(kvp => kvp.Key).ToHashSet();
 }
 
 HashSet<string> FindRecipeUsingHistogram(Dataset dataset)
@@ -179,6 +192,35 @@ int Score(Dataset dataset, HashSet<string> recipe)
     }
 
     return score;
+}
+
+
+public class VarArraySolutionPrinter : CpSolverSolutionCallback
+{
+    public VarArraySolutionPrinter(IntVar[] variables)
+    {
+        variables_ = variables;
+    }
+
+    public override void OnSolutionCallback()
+    {
+        {
+            Console.WriteLine(String.Format("Solution #{0}: time = {1:F2} s", solution_count_, WallTime()));
+            foreach (IntVar v in variables_)
+            {
+                //Console.WriteLine(String.Format("  {0} = {1}", v.ShortString(), Value(v)));
+            }
+            solution_count_++;
+        }
+    }
+
+    public int SolutionCount()
+    {
+        return solution_count_;
+    }
+
+    private int solution_count_;
+    private IntVar[] variables_;
 }
 
 public class Client
