@@ -12,6 +12,8 @@ foreach (var name in datasets)
 
     // Solve the problem
     var recipe = FindRecipeUsingLinearSolver(dataset);
+    var score = Score(dataset, recipe);
+    System.Console.WriteLine($"Score: {score}");
 
     // Write output
     // Format: "[number of ingredients in recipe] [ingredient1] [ingredient2] [ingredient3] ..."
@@ -47,12 +49,12 @@ HashSet<string> FindRecipeUsingLinearSolver(Dataset dataset)
 
         foreach (var ingredient in client.Need)
         {
-            need += ingredientVariables[ingredient] * 1;
+            need += ingredientVariables[ingredient];
         }
 
         foreach (var ingredient in client.Hate)
         {
-            hate += ingredientVariables[ingredient] * 100000;
+            hate += ingredientVariables[ingredient];
         }
 
         clients.Add(need - hate);
@@ -74,14 +76,12 @@ HashSet<string> FindRecipeUsingLinearSolver(Dataset dataset)
         throw new InvalidOperationException("The problem does not have an optimal solution!");
     }
 
-    Console.WriteLine("Solution:");
+    // Console.WriteLine("Solution:");
     Console.WriteLine("Objective value = " + solver.Objective().Value());
 
-    // [START advanced]
-    Console.WriteLine("\nAdvanced usage:");
-    Console.WriteLine("Problem solved in " + solver.WallTime() + " milliseconds");
-    Console.WriteLine("Problem solved in " + solver.Iterations() + " iterations");
-    // [END advanced]
+    // Console.WriteLine("\nAdvanced usage:");
+    // Console.WriteLine("Problem solved in " + solver.WallTime() + " milliseconds");
+    // Console.WriteLine("Problem solved in " + solver.Iterations() + " iterations");
 
     return ingredientVariables.Where(kvp => kvp.Value.SolutionValue() == 1).Select(kvp => kvp.Key).ToHashSet();
 }
