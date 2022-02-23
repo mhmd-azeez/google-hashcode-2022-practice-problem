@@ -1,4 +1,48 @@
-﻿var datasets = new[] { "a_an_example", "b_basic", "c_coarse", "d_difficult", "e_elaborate" };
+﻿
+using Google.OrTools.LinearSolver;
+using Google.OrTools.Sat;
+
+Solver solver = Solver.CreateSolver("GLOP");
+
+var cheese = solver.MakeIntVar(0, 1, "cheese");
+var peppers = solver.MakeIntVar(0, 1, "peppers");
+var basil = solver.MakeIntVar(0, 1, "basil");
+var pineapple = solver.MakeIntVar(0, 1, "pineapple");
+var mushrooms = solver.MakeIntVar(0, 1, "mushrooms");
+var tomatoes = solver.MakeIntVar(0, 1, "tomatoes");
+
+var client1 = (cheese * 100) + (peppers * 100);
+var client2 = (basil * 100) - (pineapple * 1000);
+var client3 = ((mushrooms * 100) + (tomatoes * 100)) - (basil * 1000);
+
+solver.Maximize(client1 + client2 + client3);
+
+Solver.ResultStatus resultStatus = solver.Solve();
+
+if (resultStatus != Solver.ResultStatus.OPTIMAL)
+{
+    Console.WriteLine("The problem does not have an optimal solution!");
+    return;
+}
+
+Console.WriteLine("Solution:");
+Console.WriteLine("Objective value = " + solver.Objective().Value());
+Console.WriteLine("cheese = " + cheese.SolutionValue());
+Console.WriteLine("peppers = " + peppers.SolutionValue());
+Console.WriteLine("basil = " + basil.SolutionValue());
+Console.WriteLine("pineapple = " + pineapple.SolutionValue());
+Console.WriteLine("mushrooms = " + mushrooms.SolutionValue());
+Console.WriteLine("tomatoes = " + tomatoes.SolutionValue());
+// [END print_solution]
+
+// [START advanced]
+Console.WriteLine("\nAdvanced usage:");
+Console.WriteLine("Problem solved in " + solver.WallTime() + " milliseconds");
+Console.WriteLine("Problem solved in " + solver.Iterations() + " iterations");
+// [END advanced]
+return;
+
+var datasets = new[] { "a_an_example", "b_basic", "c_coarse", "d_difficult", "e_elaborate" };
 
 foreach (var name in datasets)
 {

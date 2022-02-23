@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="Accord" Version="3.8.0" />
+    <PackageReference Include="Google.OrTools" Version="9.2.9972" />
   </ItemGroup>
 
 </Project>
