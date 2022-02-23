@@ -1,5 +1,6 @@
 ﻿
-using Google.OrTools.LinearSolver;
+// using Google.OrTools.LinearSolver;
+using Google.OrTools.Sat;
 
 var datasets = new[] { "a_an_example", "b_basic", "c_coarse", "d_difficult", "e_elaborate" };
 
@@ -30,34 +31,42 @@ System.Console.WriteLine("Done.");
 
 HashSet<string> FindRecipeUsingLinearSolver(Dataset dataset)
 {
-    Solver solver = Solver.CreateSolver("GLOP");
-    var zero = solver.MakeIntVar(0, 0, "zero");
+    var model = new CpModel();
+    var solver = new CpSolver();
 
-    var ingredientVariables = new Dictionary<string, Variable>();
+    var zero = model.NewIntVar(0, 0, "zero");
 
+    var ingredientVariables = new Dictionary<string, IntVar>();
+    var evilIngredientVariables = new Dictionary<string, IntVar>();
     foreach (var ingredient in dataset.Ingredients)
     {
-        ingredientVariables[ingredient] = solver.MakeIntVar(0, 1, ingredient);
+        var ingredientVariable = ingredientVariables[ingredient] = model.NewIntVar(0, 1, ingredient);
+        var evilIngredientVariable = evilIngredientVariables[ingredient] = model.NewIntVar(0, 1, ingredient);
+        model.Add(evilIngredientVariable == 0).OnlyEnforceIf(ingredientVariable);
+        model.Add(evilIngredientVariable == 1).OnlyEnforceIf(ingredientVariable.Not());
     }
 
     var clients = new List<LinearExpr>();
 
-    foreach (var client in dataset.Clients)
+    for (int i = 0; i < dataset.Clients.Count; i++)
     {
-        var need = zero + zero;
-        var hate = zero + zero;
+        var client = dataset.Clients[i];
+
+        var expressions = new List<IntVar>();
+        var clientExpression = model.NewIntVar(0, 1, $"client{i}");
 
         foreach (var ingredient in client.Need)
         {
-            need += ingredientVariables[ingredient];
+            expressions.Add(ingredientVariables[ingredient]);
         }
 
         foreach (var ingredient in client.Hate)
         {
-            hate += ingredientVariables[ingredient];
+            expressions.Add(evilIngredientVariables[ingredient]);
         }
 
-        clients.Add(need - hate);
+        model.AddMultiplicationEquality(clientExpression, expressions);
+        clients.Add(clientExpression);
     }
 
     var goal = zero + zero;
@@ -67,23 +76,22 @@ HashSet<string> FindRecipeUsingLinearSolver(Dataset dataset)
         goal += client;
     }
 
-    solver.Maximize(goal);
+    model.Maximize(goal);
 
-    Solver.ResultStatus resultStatus = solver.Solve();
+    var resultStatus = solver.Solve(model);
 
-    if (resultStatus != Solver.ResultStatus.OPTIMAL)
-    {
-        throw new InvalidOperationException("The problem does not have an optimal solution!");
-    }
+    // if (resultStatus != CpSolverStatus.Optimal)
+    // {
+    //     throw new InvalidOperationException("The problem does not have an optimal solution!");
+    // }
 
-    // Console.WriteLine("Solution:");
-    Console.WriteLine("Objective value = " + solver.Objective().Value());
+    System.Console.WriteLine($"Solution status: {resultStatus}");
 
     // Console.WriteLine("\nAdvanced usage:");
     // Console.WriteLine("Problem solved in " + solver.WallTime() + " milliseconds");
     // Console.WriteLine("Problem solved in " + solver.Iterations() + " iterations");
 
-    return ingredientVariables.Where(kvp => kvp.Value.SolutionValue() == 1).Select(kvp => kvp.Key).ToHashSet();
+    return ingredientVariables.Where(kvp => solver.Value(kvp.Value) == 1).Select(kvp => kvp.Key).ToHashSet();
 }
 
 HashSet<string> FindRecipeUsingHistogram(Dataset dataset)
