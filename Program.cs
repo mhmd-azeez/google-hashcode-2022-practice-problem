@@ -31,13 +31,22 @@ HashSet<string> FindRecipeUsingLinearSolver(Dataset dataset)
 {
     var model = new CpModel();
     var solver = new CpSolver();
+    var recipe = FindRecipeUsingHistogram(dataset);
 
     var zero = model.NewIntVar(0, 0, "zero");
 
     var ingredientVariables = new Dictionary<string, IntVar>();
     foreach (var ingredient in dataset.Ingredients)
     {
-        ingredientVariables[ingredient] = model.NewBoolVar(ingredient);
+        var variable = ingredientVariables[ingredient] = model.NewBoolVar(ingredient);
+        if (recipe.Contains(ingredient))
+        {
+            model.Add(variable == 1);
+        }
+        else
+        {
+            model.Add(variable == 0);
+        }
     }
 
     var clients = new List<IntVar>();
