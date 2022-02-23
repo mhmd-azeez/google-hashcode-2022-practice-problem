@@ -1,46 +1,5 @@
 ﻿
 using Google.OrTools.LinearSolver;
-using Google.OrTools.Sat;
-
-Solver solver = Solver.CreateSolver("GLOP");
-
-var cheese = solver.MakeIntVar(0, 1, "cheese");
-var peppers = solver.MakeIntVar(0, 1, "peppers");
-var basil = solver.MakeIntVar(0, 1, "basil");
-var pineapple = solver.MakeIntVar(0, 1, "pineapple");
-var mushrooms = solver.MakeIntVar(0, 1, "mushrooms");
-var tomatoes = solver.MakeIntVar(0, 1, "tomatoes");
-
-var client1 = (cheese * 100) + (peppers * 100);
-var client2 = (basil * 100) - (pineapple * 1000);
-var client3 = ((mushrooms * 100) + (tomatoes * 100)) - (basil * 1000);
-
-solver.Maximize(client1 + client2 + client3);
-
-Solver.ResultStatus resultStatus = solver.Solve();
-
-if (resultStatus != Solver.ResultStatus.OPTIMAL)
-{
-    Console.WriteLine("The problem does not have an optimal solution!");
-    return;
-}
-
-Console.WriteLine("Solution:");
-Console.WriteLine("Objective value = " + solver.Objective().Value());
-Console.WriteLine("cheese = " + cheese.SolutionValue());
-Console.WriteLine("peppers = " + peppers.SolutionValue());
-Console.WriteLine("basil = " + basil.SolutionValue());
-Console.WriteLine("pineapple = " + pineapple.SolutionValue());
-Console.WriteLine("mushrooms = " + mushrooms.SolutionValue());
-Console.WriteLine("tomatoes = " + tomatoes.SolutionValue());
-// [END print_solution]
-
-// [START advanced]
-Console.WriteLine("\nAdvanced usage:");
-Console.WriteLine("Problem solved in " + solver.WallTime() + " milliseconds");
-Console.WriteLine("Problem solved in " + solver.Iterations() + " iterations");
-// [END advanced]
-return;
 
 var datasets = new[] { "a_an_example", "b_basic", "c_coarse", "d_difficult", "e_elaborate" };
 
@@ -52,7 +11,7 @@ foreach (var name in datasets)
     var dataset = new Dataset(Path.Combine("input", name + ".in.txt"));
 
     // Solve the problem
-    var recipe = FindRecipeUsingHistogram(dataset);
+    var recipe = FindRecipeUsingLinearSolver(dataset);
 
     // Write output
     // Format: "[number of ingredients in recipe] [ingredient1] [ingredient2] [ingredient3] ..."
@@ -66,6 +25,66 @@ foreach (var name in datasets)
 }
 
 System.Console.WriteLine("Done.");
+
+HashSet<string> FindRecipeUsingLinearSolver(Dataset dataset)
+{
+    Solver solver = Solver.CreateSolver("GLOP");
+    var zero = solver.MakeIntVar(0, 0, "zero");
+
+    var ingredientVariables = new Dictionary<string, Variable>();
+
+    foreach (var ingredient in dataset.Ingredients)
+    {
+        ingredientVariables[ingredient] = solver.MakeIntVar(0, 1, ingredient);
+    }
+
+    var clients = new List<LinearExpr>();
+
+    foreach (var client in dataset.Clients)
+    {
+        var need = zero + zero;
+        var hate = zero + zero;
+
+        foreach (var ingredient in client.Need)
+        {
+            need += ingredientVariables[ingredient] * 1;
+        }
+
+        foreach (var ingredient in client.Hate)
+        {
+            hate += ingredientVariables[ingredient] * 100000;
+        }
+
+        clients.Add(need - hate);
+    }
+
+    var goal = zero + zero;
+
+    foreach (var client in clients)
+    {
+        goal += client;
+    }
+
+    solver.Maximize(goal);
+
+    Solver.ResultStatus resultStatus = solver.Solve();
+
+    if (resultStatus != Solver.ResultStatus.OPTIMAL)
+    {
+        throw new InvalidOperationException("The problem does not have an optimal solution!");
+    }
+
+    Console.WriteLine("Solution:");
+    Console.WriteLine("Objective value = " + solver.Objective().Value());
+
+    // [START advanced]
+    Console.WriteLine("\nAdvanced usage:");
+    Console.WriteLine("Problem solved in " + solver.WallTime() + " milliseconds");
+    Console.WriteLine("Problem solved in " + solver.Iterations() + " iterations");
+    // [END advanced]
+
+    return ingredientVariables.Where(kvp => kvp.Value.SolutionValue() == 1).Select(kvp => kvp.Key).ToHashSet();
+}
 
 HashSet<string> FindRecipeUsingHistogram(Dataset dataset)
 {
