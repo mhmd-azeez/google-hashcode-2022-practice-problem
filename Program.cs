@@ -35,11 +35,15 @@ HashSet<string> FindRecipeUsingLinearSolver(Dataset dataset)
     var zero = model.NewBoolVar("zero");
     var one = model.NewIntVar(1, 1, "one");
 
+    var variables = new List<IntVar>();
+
     var ingredientVariables = new Dictionary<string, IntVar>();
 
     foreach (var ingredient in dataset.Ingredients)
     {
-        ingredientVariables[ingredient] = model.NewBoolVar(ingredient);
+        var variable = model.NewBoolVar(ingredient);
+        ingredientVariables[ingredient] = variable;
+        variables.Add(variable);
     }
 
     var clients = new List<LinearExpr>();
@@ -54,11 +58,14 @@ HashSet<string> FindRecipeUsingLinearSolver(Dataset dataset)
         IntVar? need = null;
         IntVar? hate = null;
 
+        variables.Add(clientVariable);
+      
+
         if (needs.Length > 2)
         {
             for (int n = 0; n < needs.Length; n += 1)
             {
-                var intermediate = model.NewBoolVar($"client{i}_need{n}");
+                var intermediate = model.NewBoolVar($"client{i}_need{n}_satisfied");
 
                 if (n == 0)
                 {
@@ -92,22 +99,27 @@ HashSet<string> FindRecipeUsingLinearSolver(Dataset dataset)
             for (int h = 0; h < hates.Length; h += 1)
             {
                 var ingredient = ingredientVariables[hates[h]];
-                var intermediate = model.NewBoolVar($"client{i}_hate{h}");
-                var notInclude = model.NewBoolVar($"client{i}_hate{h}_not");
-                model.Add(notInclude != ingredient);
+
+                var intermediate = model.NewBoolVar($"client{i}_hate{h}_satisfied");
+                variables.Add(intermediate);
+
+                var notIngredient = model.NewBoolVar($"client{i}_hate{h}_not_included");
+                model.Add(notIngredient != ingredient);
+                variables.Add(notIngredient);
 
                 if (h == 0)
                 {
                     var ingredient2 = ingredientVariables[hates[h + 1]];
-                    var notInclude2 = model.NewBoolVar($"client{i}_hate{1}_not");
-                    model.Add(notInclude2 != ingredient2);
+                    var notIngredient2 = model.NewBoolVar($"client{i}_hate{h + 1}_not_included");
+                    model.Add(notIngredient2 != ingredient2);
+                    variables.Add(notIngredient2);
 
-                    model.AddMultiplicationEquality(intermediate, new[] { notInclude, notInclude2 });
+                    model.AddMultiplicationEquality(intermediate, new[] { notIngredient, notIngredient2 });
                     h++;
                 }
                 else
                 {
-                    model.AddMultiplicationEquality(intermediate, new[] { hate, ingredientVariables[hates[h]] });
+                    model.AddMultiplicationEquality(intermediate, new[] { hate, notIngredient });
                 }
 
                 hate = intermediate;
@@ -139,15 +151,18 @@ HashSet<string> FindRecipeUsingLinearSolver(Dataset dataset)
             hate = one;
         }
 
+        variables.Add(hate);
+        variables.Add(need);
+
         model.AddMultiplicationEquality(clientVariable, new[] { need, hate });
         clients.Add(clientVariable);
     }
 
     model.Maximize(LinearExpr.Sum(clients));
 
-    solver.StringParameters = "max_time_in_seconds:10000";
+    solver.StringParameters = "max_time_in_seconds:600"; // ;log_search_progress:true";
     solver.SetLogCallback(message => Console.WriteLine(message));
-    var resultStatus = solver.Solve(model, new VarArraySolutionPrinterWithLimit(10000));
+    var resultStatus = solver.Solve(model, new VarArraySolutionPrinterWithLimit(150, variables));
 
     //if (resultStatus != CpSolverStatus.Optimal)
     //{
@@ -257,22 +272,23 @@ int Score(Dataset dataset, HashSet<string> recipe)
 
 public class VarArraySolutionPrinterWithLimit : CpSolverSolutionCallback
 {
-    public VarArraySolutionPrinterWithLimit(int solution_limit)
+    public VarArraySolutionPrinterWithLimit(int solution_limit, List<IntVar> variables)
     {
         solution_limit_ = solution_limit;
+        _variables = variables;
     }
 
     public override void OnSolutionCallback()
     {
         Console.WriteLine($"Solution #{solution_count_}: time = {WallTime():F2} s. Objective Value: {ObjectiveValue()}");
-        //foreach (IntVar v in variables_)
+        //foreach (IntVar v in _variables)
         //{
-        //    Console.WriteLine(String.Format("  {0} = {1}", v.ShortString(), Value(v)));
+        //    Console.WriteLine(string.Format("  {0} = {1}", v.ShortString(), Value(v)));
         //}
         solution_count_++;
         if (solution_count_ >= solution_limit_)
         {
-            Console.WriteLine(String.Format("Stopping search after {0} solutions", solution_limit_));
+            Console.WriteLine(string.Format("Stopping search after {0} solutions", solution_limit_));
             StopSearch();
         }
     }
@@ -284,6 +300,7 @@ public class VarArraySolutionPrinterWithLimit : CpSolverSolutionCallback
 
     private int solution_count_;
     private int solution_limit_;
+    private readonly List<IntVar> _variables;
 }
 
 public class Client
