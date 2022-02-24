@@ -1,322 +1,327 @@
 ﻿
-using Google.OrTools.LinearSolver;
 using Google.OrTools.Sat;
 
-var model = new CpModel();
-var solver = new CpSolver();
+var datasets = new[] { "a_an_example", "b_basic", "c_coarse", "d_difficult", "e_elaborate" };
 
-var zero = model.NewConstant(0, "zero");
-
-var ingredients = new[] { "akuof", "byyii", "dlust", "xdozp", "luncl", "qzfyo", "vxglq", "xveqd", "tfeej", "sunhp" }
-    .ToDictionary(x => x, x => model.NewBoolVar(x));
-
-// ######### Client 1
-var client1 = model.NewBoolVar("client1");
-var akuofAndByyii = model.NewBoolVar("akuofAndByyii");
-model.AddMultiplicationEquality(akuofAndByyii, new[] { ingredients["akuof"], ingredients["byyii"] });
-
-var akuofAndByyiiAndDlust = model.NewBoolVar("akuofAndByyiiAndDlust");
-model.AddMultiplicationEquality(akuofAndByyiiAndDlust, new[] { akuofAndByyii, ingredients["dlust"] });
-
-var notXdozp = model.NewBoolVar("notXdozp");
-model.Add(notXdozp != ingredients["xdozp"]);
-
-model.AddMultiplicationEquality(client1, new[] { akuofAndByyiiAndDlust, notXdozp });
-
-// ######### Client 2
-var client2 = model.NewBoolVar("client2");
-
-var dlustAndLuncl = model.NewBoolVar("dlustAndLuncl");
-model.AddMultiplicationEquality(dlustAndLuncl, new[] { ingredients["dlust"], ingredients["luncl"] });
-
-var dlustAndLunclAndQzfyo = model.NewBoolVar("dlustAndLunclAndQzfyo");
-model.AddMultiplicationEquality(dlustAndLunclAndQzfyo, new[] { dlustAndLuncl, ingredients["qzfyo"] });
-
-model.AddMultiplicationEquality(client2, new[] { dlustAndLunclAndQzfyo, notXdozp });
-
-// ######### Client 3
-var client3 = model.NewBoolVar("client3");
-
-var akoufAndLuncl = model.NewBoolVar("akoufAndLuncl");
-model.AddMultiplicationEquality(akoufAndLuncl, new[] { ingredients["akuof"], ingredients["luncl"] });
-
-var akoufAndLunclAndVxglq = model.NewBoolVar("akoufAndLunclAndVxglq");
-model.AddMultiplicationEquality(akoufAndLunclAndVxglq, new[] { akoufAndLuncl, ingredients["vxglq"] });
-
-var notQzfyo = model.NewBoolVar("notQzfyo");
-model.Add(notQzfyo != ingredients["qzfyo"]);
-
-model.AddMultiplicationEquality(client3, new[] { akoufAndLunclAndVxglq, notQzfyo });
-
-// ######### Client 4
-var client4 = model.NewBoolVar("client4");
-model.AddMultiplicationEquality(client4, new[] { dlustAndLuncl, ingredients["vxglq"] });
-
-// ######### Client 5
-var client5 = model.NewBoolVar("client5");
-
-var dlustAndXveqd = model.NewBoolVar("dlustAndXveqd");
-model.AddMultiplicationEquality(dlustAndXveqd, new[] { ingredients["dlust"], ingredients["xveqd"] });
-
-model.AddMultiplicationEquality(client5, new[] { dlustAndXveqd, ingredients["tfeej"] });
-
-// ######### Client 6
-var client6 = model.NewBoolVar("client6");
-
-var qzfyoAndVxglq = model.NewBoolVar("qzfyoAndVxglq");
-model.AddMultiplicationEquality(qzfyoAndVxglq, new[] { ingredients["qzfyo"], ingredients["vxglq"] });
-
-var qzfyoAndVxglqAndLucl = model.NewBoolVar("qzfyoAndVxglqAndLucl");
-model.AddMultiplicationEquality(qzfyoAndVxglqAndLucl, new[] { qzfyoAndVxglq, ingredients["luncl"] });
-
-var notByyii = model.NewBoolVar("notByyii");
-model.Add(notByyii != ingredients["byyii"]);
-
-model.AddMultiplicationEquality(client6, new[] { qzfyoAndVxglqAndLucl, notByyii });
-
-model.Maximize(client1 + client2 + client3 + client4 + client5 + client6);
-
-var resultStatus = solver.Solve(model);
-
-if (resultStatus != CpSolverStatus.Optimal)
+foreach (var name in datasets)
 {
-    Console.WriteLine($"The problem does not have an optimal solution: {resultStatus}. {solver.SolutionInfo()}");
-    return;
+    System.Console.WriteLine($"Processing dataset {name}...");
+
+    // Read input
+    var dataset = new Dataset(Path.Combine("input", name + ".in.txt"));
+
+    // Solve the problem
+    var recipe = FindRecipeUsingLinearSolver(dataset);
+    var score = Score(dataset, recipe);
+    System.Console.WriteLine($"Score: {score}");
+
+    // Write output
+    // Format: "[number of ingredients in recipe] [ingredient1] [ingredient2] [ingredient3] ..."
+    var items = new List<string> { recipe.Count.ToString() };
+    items.AddRange(recipe);
+
+    Directory.CreateDirectory("output");
+
+    var content = string.Join(" ", items);
+    File.WriteAllText(Path.Combine("output", name + ".out.txt"), content);
 }
 
-Console.WriteLine("Solution:");
-Console.WriteLine("Objective value = " + solver.ObjectiveValue);
-// [END print_solution]
+System.Console.WriteLine("Done.");
 
-foreach (var ingredient in ingredients)
+HashSet<string> FindRecipeUsingLinearSolver(Dataset dataset)
 {
-    Console.WriteLine($"{ingredient.Key}: {solver.Value(ingredient.Value)}");
+    var model = new CpModel();
+    var solver = new CpSolver();
+    var zero = model.NewBoolVar("zero");
+    var one = model.NewIntVar(1, 1, "one");
+
+    var ingredientVariables = new Dictionary<string, IntVar>();
+
+    foreach (var ingredient in dataset.Ingredients)
+    {
+        ingredientVariables[ingredient] = model.NewBoolVar(ingredient);
+    }
+
+    var clients = new List<LinearExpr>();
+
+    for (int i = 0; i < dataset.Clients.Count; i++)
+    {
+        var client = dataset.Clients[i];
+        var needs = client.Need.ToArray();
+        var hates = client.Hate.ToArray();
+
+        var clientVariable = model.NewBoolVar($"client{i}");
+        IntVar? need = null;
+        IntVar? hate = null;
+
+        if (needs.Length > 2)
+        {
+            for (int n = 0; n < needs.Length; n += 1)
+            {
+                var intermediate = model.NewBoolVar($"client{i}_need{n}");
+
+                if (n == 0)
+                {
+                    model.AddMultiplicationEquality(intermediate, new[] { ingredientVariables[needs[n]], ingredientVariables[needs[n + 1]] });
+                    n++;
+                }
+                else
+                {
+                    model.AddMultiplicationEquality(intermediate, new[] { need, ingredientVariables[needs[n]] });
+                }
+
+                need = intermediate;
+            }
+        }
+        else if (needs.Length == 2)
+        {
+            need = model.NewBoolVar($"client{i}_need");
+            model.AddMultiplicationEquality(need, new[] { ingredientVariables[needs[0]], ingredientVariables[needs[1]] });
+        }
+        else if (needs.Length == 1)
+        {
+            need = ingredientVariables[needs[0]];
+        }
+        else
+        {
+            need = one;
+        }
+
+        if (hates.Length > 2)
+        {
+            for (int h = 0; h < hates.Length; h += 1)
+            {
+                var ingredient = ingredientVariables[hates[h]];
+                var intermediate = model.NewBoolVar($"client{i}_hate{h}");
+                var notInclude = model.NewBoolVar($"client{i}_hate{h}_not");
+                model.Add(notInclude != ingredient);
+
+                if (h == 0)
+                {
+                    var ingredient2 = ingredientVariables[hates[h + 1]];
+                    var notInclude2 = model.NewBoolVar($"client{i}_hate{1}_not");
+                    model.Add(notInclude2 != ingredient2);
+
+                    model.AddMultiplicationEquality(intermediate, new[] { notInclude, notInclude2 });
+                    h++;
+                }
+                else
+                {
+                    model.AddMultiplicationEquality(intermediate, new[] { hate, ingredientVariables[hates[h]] });
+                }
+
+                hate = intermediate;
+            }
+        }
+        else if (hates.Length == 2)
+        {
+            var notInclude = model.NewBoolVar($"client{i}_hate{0}_not");
+            var ingredient = ingredientVariables[hates[0]];
+            model.Add(notInclude != ingredient);
+
+            var ingredient2 = ingredientVariables[hates[1]];
+            var notInclude2 = model.NewBoolVar($"client{i}_hate{1}_not2");
+            model.Add(notInclude2 != ingredient2);
+
+            hate = model.NewBoolVar($"client{i}_hate");
+            model.AddMultiplicationEquality(hate, new[] { notInclude, notInclude2 });
+        }
+        else if (hates.Length == 1)
+        {
+            var notInclude = model.NewBoolVar($"client{i}_hate{0}_not");
+            var ingredient = ingredientVariables[hates[0]];
+            model.Add(notInclude != ingredient);
+
+            hate = notInclude;
+        }
+        else
+        {
+            hate = one;
+        }
+
+        model.AddMultiplicationEquality(clientVariable, new[] { need, hate });
+        clients.Add(clientVariable);
+    }
+
+    model.Maximize(LinearExpr.Sum(clients));
+
+    solver.StringParameters = "max_time_in_seconds:10000";
+    solver.SetLogCallback(message => Console.WriteLine(message));
+    var resultStatus = solver.Solve(model, new VarArraySolutionPrinterWithLimit(10000));
+
+    //if (resultStatus != CpSolverStatus.Optimal)
+    //{
+    //    throw new InvalidOperationException($"The problem does not have an optimal solution: {resultStatus}. {solver.SolutionInfo()}.");
+    //}
+
+    // Console.WriteLine("Solution:");
+    Console.WriteLine($"Objective value: {solver.ObjectiveValue} in {solver.WallTime()} ms" );
+
+    return ingredientVariables.Where(kvp => solver.Value(kvp.Value) == 1).Select(kvp => kvp.Key).ToHashSet();
 }
 
-// [START advanced]
-Console.WriteLine("\nAdvanced usage:");
-Console.WriteLine("Problem solved in " + solver.WallTime() + " milliseconds");
-// [END advanced]
-return;
+HashSet<string> FindRecipeUsingHistogram(Dataset dataset)
+{
+    HashSet<string> bestRecipe = new HashSet<string>();
+    int bestScore = 0;
+    int bestThreshold = 0;
 
-// using Google.OrTools.LinearSolver;
+    for (int i = 0; i < 10; i++)
+    {
+        var recipe = FindRecipeWithThreshold(dataset, i);
+        var score = Score(dataset, recipe);
 
-// var datasets = new[] { "a_an_example", "b_basic", "c_coarse", "d_difficult", "e_elaborate" };
+        if (score > bestScore)
+        {
+            bestRecipe = recipe;
+            bestScore = score;
+            bestThreshold = i;
+        }
+    }
 
-// foreach (var name in datasets)
-// {
-//     System.Console.WriteLine($"Processing dataset {name}...");
+    System.Console.WriteLine($"Best score: {bestScore}. Best Threshold: {bestThreshold}");
+    return bestRecipe;
+}
 
-//     // Read input
-//     var dataset = new Dataset(Path.Combine("input", name + ".in.txt"));
+HashSet<string> FindRecipeWithThreshold(Dataset dataset, int threshold)
+{
+    // The basic idea is we include all ingredients whose # of clients that need the ingredient
+    // is greater than # of clients that hate the ingredient by calculating a histogram for the ingredients.
 
-//     // Solve the problem
-//     var recipe = FindRecipeUsingLinearSolver(dataset);
-//     var score = Score(dataset, recipe);
-//     System.Console.WriteLine($"Score: {score}");
+    var histogram = new Dictionary<string, int>();
 
-//     // Write output
-//     // Format: "[number of ingredients in recipe] [ingredient1] [ingredient2] [ingredient3] ..."
-//     var items = new List<string> { recipe.Count.ToString() };
-//     items.AddRange(recipe);
+    // Exclude the picky clients according to the threshold
+    var rasonableClients = dataset.Clients.Where(c => c.Hate.Count <= threshold).ToArray();
 
-//     Directory.CreateDirectory("output");
+    foreach (var ingredient in dataset.Ingredients)
+    {
+        var score = 0;
 
-//     var content = string.Join(" ", items);
-//     File.WriteAllText(Path.Combine("output", name + ".out.txt"), content);
-// }
+        foreach (var client in rasonableClients)
+        {
+            if (client.Need.Contains(ingredient))
+            {
+                score++;
+            }
 
-// System.Console.WriteLine("Done.");
+            if (client.Hate.Contains(ingredient))
+            {
+                score--;
+            }
+        }
 
-// HashSet<string> FindRecipeUsingLinearSolver(Dataset dataset)
-// {
-//     Solver solver = Solver.CreateSolver("GLOP");
-//     var zero = model.NewBoolVar("zero");
+        histogram[ingredient] = score;
+    }
 
-//     var ingredientVariables = new Dictionary<string, Variable>();
+    return histogram.Where(kvp => kvp.Value > 0).Select(kvp => kvp.Key).ToHashSet();
+}
 
-//     foreach (var ingredient in dataset.Ingredients)
-//     {
-//         ingredientVariables[ingredient] = model.NewBoolVar(ingredient);
-//     }
+int Score(Dataset dataset, HashSet<string> recipe)
+{
+    var score = 0;
 
-//     var clients = new List<LinearExpr>();
+    foreach (var client in dataset.Clients)
+    {
+        var satisfied = true;
+        foreach (var ingredient in client.Need)
+        {
+            if (!recipe.Contains(ingredient))
+            {
+                satisfied = false;
+                break;
+            }
+        }
 
-//     foreach (var client in dataset.Clients)
-//     {
-//         var need = zero + zero;
-//         var hate = zero + zero;
+        if (!satisfied)
+        {
+            continue;
+        }
 
-//         foreach (var ingredient in client.Need)
-//         {
-//             need += ingredientVariables[ingredient];
-//         }
+        foreach (var ingredient in client.Hate)
+        {
+            if (recipe.Contains(ingredient))
+            {
+                satisfied = false;
+                break;
+            }
+        }
 
-//         foreach (var ingredient in client.Hate)
-//         {
-//             hate += ingredientVariables[ingredient];
-//         }
+        if (satisfied)
+        {
+            score++;
+        }
+    }
 
-//         clients.Add(need - hate);
-//     }
+    return score;
+}
 
-//     var goal = zero + zero;
+public class VarArraySolutionPrinterWithLimit : CpSolverSolutionCallback
+{
+    public VarArraySolutionPrinterWithLimit(int solution_limit)
+    {
+        solution_limit_ = solution_limit;
+    }
 
-//     foreach (var client in clients)
-//     {
-//         goal += client;
-//     }
+    public override void OnSolutionCallback()
+    {
+        Console.WriteLine($"Solution #{solution_count_}: time = {WallTime():F2} s. Objective Value: {ObjectiveValue()}");
+        //foreach (IntVar v in variables_)
+        //{
+        //    Console.WriteLine(String.Format("  {0} = {1}", v.ShortString(), Value(v)));
+        //}
+        solution_count_++;
+        if (solution_count_ >= solution_limit_)
+        {
+            Console.WriteLine(String.Format("Stopping search after {0} solutions", solution_limit_));
+            StopSearch();
+        }
+    }
 
-//     solver.Maximize(goal);
+    public int SolutionCount()
+    {
+        return solution_count_;
+    }
 
-//     Solver.ResultStatus resultStatus = solver.Solve();
+    private int solution_count_;
+    private int solution_limit_;
+}
 
-//     if (resultStatus != Solver.ResultStatus.OPTIMAL)
-//     {
-//         throw new InvalidOperationException("The problem does not have an optimal solution!");
-//     }
+public class Client
+{
+    public Client(string line1, string line2)
+    {
+        // Format: # of ingredents, ingredient1, ingredient2, ...
+        Need = line1.Split(' ', StringSplitOptions.RemoveEmptyEntries).Skip(1).ToHashSet();
+        Hate = line2.Split(' ', StringSplitOptions.RemoveEmptyEntries).Skip(1).ToHashSet();
+    }
 
-//     // Console.WriteLine("Solution:");
-//     Console.WriteLine("Objective value = " + solver.Objective().Value());
+    public HashSet<string> Need { get; set; }
+    public HashSet<string> Hate { get; set; }
+}
 
-//     // Console.WriteLine("\nAdvanced usage:");
-//     // Console.WriteLine("Problem solved in " + solver.WallTime() + " milliseconds");
-//     // Console.WriteLine("Problem solved in " + solver.Iterations() + " iterations");
+public class Dataset
+{
+    public Dataset(string path)
+    {
+        var lines = File.ReadAllLines(path);
 
-//     return ingredientVariables.Where(kvp => kvp.solver.Value(Value) == 1).Select(kvp => kvp.Key).ToHashSet();
-// }
+        var totalCount = int.Parse(lines[0]);
+        var clients = new List<Client>();
 
-// HashSet<string> FindRecipeUsingHistogram(Dataset dataset)
-// {
-//     HashSet<string> bestRecipe = new HashSet<string>();
-//     int bestScore = 0;
-//     int bestThreshold = 0;
+        for (int i = 1; i < lines.Length; i += 2)
+        {
+            var client = new Client(lines[i], lines[i + 1]);
+            Ingredients.UnionWith(client.Need);
+            Ingredients.UnionWith(client.Hate);
 
-//     for (int i = 0; i < 10; i++)
-//     {
-//         var recipe = FindRecipeWithThreshold(dataset, i);
-//         var score = Score(dataset, recipe);
+            clients.Add(client);
+        }
 
-//         if (score > bestScore)
-//         {
-//             bestRecipe = recipe;
-//             bestScore = score;
-//             bestThreshold = i;
-//         }
-//     }
+        Clients = clients;
+        Path = path;
+    }
 
-//     System.Console.WriteLine($"Best score: {bestScore}. Best Threshold: {bestThreshold}");
-//     return bestRecipe;
-// }
-
-// HashSet<string> FindRecipeWithThreshold(Dataset dataset, int threshold)
-// {
-//     // The basic idea is we include all ingredients whose # of clients that need the ingredient
-//     // is greater than # of clients that hate the ingredient by calculating a histogram for the ingredients.
-
-//     var histogram = new Dictionary<string, int>();
-
-//     // Exclude the picky clients according to the threshold
-//     var rasonableClients = dataset.Clients.Where(c => c.Hate.Count <= threshold).ToArray();
-
-//     foreach (var ingredient in dataset.Ingredients)
-//     {
-//         var score = 0;
-
-//         foreach (var client in rasonableClients)
-//         {
-//             if (client.Need.Contains(ingredient))
-//             {
-//                 score++;
-//             }
-
-//             if (client.Hate.Contains(ingredient))
-//             {
-//                 score--;
-//             }
-//         }
-
-//         histogram[ingredient] = score;
-//     }
-
-//     return histogram.Where(kvp => kvp.Value > 0).Select(kvp => kvp.Key).ToHashSet();
-// }
-
-// int Score(Dataset dataset, HashSet<string> recipe)
-// {
-//     var score = 0;
-
-//     foreach (var client in dataset.Clients)
-//     {
-//         var satisfied = true;
-//         foreach (var ingredient in client.Need)
-//         {
-//             if (!recipe.Contains(ingredient))
-//             {
-//                 satisfied = false;
-//                 break;
-//             }
-//         }
-
-//         if (!satisfied)
-//         {
-//             continue;
-//         }
-
-//         foreach (var ingredient in client.Hate)
-//         {
-//             if (recipe.Contains(ingredient))
-//             {
-//                 satisfied = false;
-//                 break;
-//             }
-//         }
-
-//         if (satisfied)
-//         {
-//             score++;
-//         }
-//     }
-
-//     return score;
-// }
-
-// public class Client
-// {
-//     public Client(string line1, string line2)
-//     {
-//         // Format: # of ingredents, ingredient1, ingredient2, ...
-//         Need = line1.Split(' ', StringSplitOptions.RemoveEmptyEntries).Skip(1).ToHashSet();
-//         Hate = line2.Split(' ', StringSplitOptions.RemoveEmptyEntries).Skip(1).ToHashSet();
-//     }
-
-//     public HashSet<string> Need { get; set; }
-//     public HashSet<string> Hate { get; set; }
-// }
-
-// public class Dataset
-// {
-//     public Dataset(string path)
-//     {
-//         var lines = File.ReadAllLines(path);
-
-//         var totalCount = int.Parse(lines[0]);
-//         var clients = new List<Client>();
-
-//         for (int i = 1; i < lines.Length; i += 2)
-//         {
-//             var client = new Client(lines[i], lines[i + 1]);
-//             Ingredients.UnionWith(client.Need);
-//             Ingredients.UnionWith(client.Hate);
-
-//             clients.Add(client);
-//         }
-
-//         Clients = clients;
-//         Path = path;
-//     }
-
-//     public IReadOnlyList<Client> Clients { get; }
-//     public HashSet<string> Ingredients { get; } = new();
-//     public string Path { get; }
-// }
+    public IReadOnlyList<Client> Clients { get; }
+    public HashSet<string> Ingredients { get; } = new();
+    public string Path { get; }
+}
