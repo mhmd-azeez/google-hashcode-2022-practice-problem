@@ -2,6 +2,8 @@
 
 [Google OR-Tools](https://developers.google.com/optimization) was used to solve the problem.
 
+Note: For a simpler solution using Histograms and a cut-ff threshold, check out this [branch](https://github.com/mhmd-azeez/google-hashcode-2022-practice-problem/tree/histogram-and-threshold).
+
 Results:
 ```
 Processing dataset a_an_example...
